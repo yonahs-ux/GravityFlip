@@ -84,7 +84,21 @@ const CONFIG = {
     // Game is designed at this resolution; scales to fit screen
     BASE_WIDTH: 1280,
     BASE_HEIGHT: 720,
-    TARGET_ASPECT_RATIO: 16 / 9
+    TARGET_ASPECT_RATIO: 16 / 9,
+
+    // Viewport Layout Constants (for consistent spacing across devices)
+    PLAYER_X_RATIO: 0.15,              // Player horizontal position as ratio of screen width (15%)
+    MIN_HORIZONTAL_BUFFER_RATIO: 0.50, // Minimum visible space ahead of player (50% of screen width)
+    MIN_PLAYABLE_GAP_RATIO: 0.55,      // Minimum floor-to-ceiling gap as ratio of height (55%)
+    MIN_PLAYABLE_GAP_PX: 400,          // Absolute minimum playable gap in pixels
+    MAX_SURFACE_HEIGHT_RATIO: 0.15,    // Maximum floor/ceiling height as ratio of height (15%)
+    MIN_SURFACE_HEIGHT_RATIO: 0.08,    // Minimum floor/ceiling height as ratio of height (8%)
+
+    // Portrait mode adjustments
+    PORTRAIT_BASE_WIDTH: 720,          // Base width for portrait orientation
+    PORTRAIT_BASE_HEIGHT: 1280,        // Base height for portrait orientation
+    PORTRAIT_MIN_PLAYABLE_GAP_RATIO: 0.50, // Slightly relaxed for portrait (50%)
+    PORTRAIT_PLAYER_X_RATIO: 0.15      // Same ratio but for portrait mode
 };
 
 // Neon Cyber-Drift Themes
@@ -126,6 +140,184 @@ const THEMES = [
         floatingObstacle: '#bc13fe' // Purple
     }
 ];
+
+// ==========================================
+// VIEWPORT MANAGER - Consistent spacing across devices
+// ==========================================
+class ViewportManager {
+    constructor(config) {
+        this.config = config;
+        this.currentScale = 1;
+        this.orientation = 'landscape';
+        this.logicalWidth = config.BASE_WIDTH;
+        this.logicalHeight = config.BASE_HEIGHT;
+        this.displayWidth = config.BASE_WIDTH;
+        this.displayHeight = config.BASE_HEIGHT;
+        this.surfaceHeight = 0;
+        this.playableGap = 0;
+        this.playerX = 0;
+        this.dpr = 1;
+    }
+
+    /**
+     * Calculate viewport layout based on screen dimensions
+     * @param {number} viewportWidth - Available screen width
+     * @param {number} viewportHeight - Available screen height
+     * @returns {ViewportManager} - Returns self for chaining
+     */
+    calculate(viewportWidth, viewportHeight) {
+        // Determine orientation
+        this.orientation = viewportWidth >= viewportHeight ? 'landscape' : 'portrait';
+
+        // Select appropriate base dimensions based on orientation
+        let baseWidth, baseHeight;
+        if (this.orientation === 'landscape') {
+            baseWidth = this.config.BASE_WIDTH;
+            baseHeight = this.config.BASE_HEIGHT;
+        } else {
+            // Portrait mode uses rotated base dimensions
+            baseWidth = this.config.PORTRAIT_BASE_WIDTH || this.config.BASE_HEIGHT;
+            baseHeight = this.config.PORTRAIT_BASE_HEIGHT || this.config.BASE_WIDTH;
+        }
+
+        // Calculate scale while maintaining aspect ratio (letterbox/pillarbox)
+        const scaleX = viewportWidth / baseWidth;
+        const scaleY = viewportHeight / baseHeight;
+        this.currentScale = Math.min(scaleX, scaleY);
+
+        // Ensure minimum scale for readability
+        const MIN_SCALE = 0.5;
+        if (this.currentScale < MIN_SCALE) {
+            console.warn(`[ViewportManager] Scale ${this.currentScale.toFixed(2)} below minimum, clamping to ${MIN_SCALE}`);
+            this.currentScale = MIN_SCALE;
+        }
+
+        // Calculate display dimensions
+        this.displayWidth = Math.floor(baseWidth * this.currentScale);
+        this.displayHeight = Math.floor(baseHeight * this.currentScale);
+
+        // Store logical dimensions (game runs at this resolution internally)
+        this.logicalWidth = baseWidth;
+        this.logicalHeight = baseHeight;
+
+        // Store device pixel ratio
+        this.dpr = window.devicePixelRatio || 1;
+
+        // Calculate surface heights with minimum gap enforcement
+        this.calculateSurfaceHeights();
+
+        // Calculate player position
+        this.calculatePlayerPosition();
+
+        return this;
+    }
+
+    /**
+     * Calculate floor/ceiling heights while enforcing minimum playable gap
+     */
+    calculateSurfaceHeights() {
+        // Get the desired surface height (based on current CONFIG or default 12%)
+        const desiredSurfaceRatio = 0.12;
+        let surfaceHeight = Math.floor(this.logicalHeight * desiredSurfaceRatio);
+
+        // Get minimum gap ratio based on orientation
+        const minGapRatio = this.orientation === 'landscape'
+            ? this.config.MIN_PLAYABLE_GAP_RATIO
+            : (this.config.PORTRAIT_MIN_PLAYABLE_GAP_RATIO || this.config.MIN_PLAYABLE_GAP_RATIO);
+
+        // Calculate minimum playable gap (use larger of ratio-based or absolute minimum)
+        const minGapByRatio = Math.floor(this.logicalHeight * minGapRatio);
+        const minGapAbsolute = this.config.MIN_PLAYABLE_GAP_PX || 400;
+        const minPlayableGap = Math.max(minGapByRatio, minGapAbsolute);
+
+        // Calculate maximum allowed surface height to maintain minimum gap
+        const maxSurfaceForGap = Math.floor((this.logicalHeight - minPlayableGap) / 2);
+
+        // Apply surface height constraints
+        const minSurfaceHeight = Math.floor(this.logicalHeight * (this.config.MIN_SURFACE_HEIGHT_RATIO || 0.08));
+        const maxSurfaceHeight = Math.floor(this.logicalHeight * (this.config.MAX_SURFACE_HEIGHT_RATIO || 0.15));
+
+        // Clamp surface height: must be >= min, <= max, and allow minimum gap
+        surfaceHeight = Math.max(minSurfaceHeight, Math.min(surfaceHeight, maxSurfaceHeight, maxSurfaceForGap));
+
+        // Store calculated values
+        this.surfaceHeight = surfaceHeight;
+        this.playableGap = this.logicalHeight - (surfaceHeight * 2);
+
+        // Validate playable gap
+        if (this.playableGap < minGapAbsolute) {
+            console.warn(`[ViewportManager] Playable gap ${this.playableGap}px below minimum ${minGapAbsolute}px. Screen may be too small.`);
+        }
+    }
+
+    /**
+     * Calculate player X position based on viewport width ratio
+     */
+    calculatePlayerPosition() {
+        // Get player X ratio based on orientation
+        const playerXRatio = this.orientation === 'landscape'
+            ? (this.config.PLAYER_X_RATIO || 0.15)
+            : (this.config.PORTRAIT_PLAYER_X_RATIO || this.config.PLAYER_X_RATIO || 0.15);
+
+        this.playerX = Math.floor(this.logicalWidth * playerXRatio);
+
+        // Ensure minimum horizontal buffer ahead of player (for reaction time)
+        const minBufferRatio = this.config.MIN_HORIZONTAL_BUFFER_RATIO || 0.50;
+        const minBuffer = this.logicalWidth * minBufferRatio;
+        const actualBuffer = this.logicalWidth - this.playerX;
+
+        // If buffer is insufficient, adjust player position
+        if (actualBuffer < minBuffer) {
+            this.playerX = Math.floor(this.logicalWidth - minBuffer);
+            console.warn(`[ViewportManager] Adjusting player X to ${this.playerX} to maintain ${minBufferRatio * 100}% buffer ahead`);
+        }
+
+        // Ensure player X is always positive and reasonable
+        this.playerX = Math.max(50, this.playerX);
+    }
+
+    /**
+     * Get the playable area boundaries
+     * @returns {Object} - Playable area dimensions
+     */
+    getPlayableArea() {
+        return {
+            top: this.surfaceHeight,
+            bottom: this.logicalHeight - this.surfaceHeight,
+            left: 0,
+            right: this.logicalWidth,
+            height: this.playableGap,
+            width: this.logicalWidth
+        };
+    }
+
+    /**
+     * Get player spawn position
+     * @param {number} playerHeight - Height of the player
+     * @returns {Object} - Spawn position coordinates
+     */
+    getPlayerSpawnPosition(playerHeight) {
+        return {
+            x: this.playerX,
+            floorY: this.logicalHeight - this.surfaceHeight - playerHeight,
+            ceilingY: this.surfaceHeight
+        };
+    }
+
+    /**
+     * Get viewport info for debugging
+     * @returns {string} - Formatted debug string
+     */
+    getDebugInfo() {
+        return `${this.orientation} | ` +
+            `Logical: ${this.logicalWidth}x${this.logicalHeight} | ` +
+            `Display: ${this.displayWidth}x${this.displayHeight} | ` +
+            `Scale: ${this.currentScale.toFixed(2)} | ` +
+            `Gap: ${this.playableGap}px | ` +
+            `Surface: ${this.surfaceHeight}px | ` +
+            `PlayerX: ${this.playerX}px`;
+    }
+}
 
 // ==========================================
 // AUDIO MANAGER
@@ -541,11 +733,23 @@ class Player {
         this.height = CONFIG.PLAYER_HEIGHT;
         this.trail = []; // Ghost trail history
         this.trailTimer = 0;
+        // Store initial X position (can be set externally by viewport manager)
+        this.initialX = null;
         this.reset();
     }
 
     reset() {
-        this.x = CONFIG.PLAYER_X_POSITION;
+        // Use viewport-provided X position if available, otherwise fall back to CONFIG
+        // Note: this.x may have been set externally before reset; use initialX if available
+        if (this.initialX !== null) {
+            this.x = this.initialX;
+        } else if (this.x && this.x !== CONFIG.PLAYER_X_POSITION) {
+            // Keep current X if it was set externally (e.g., by ViewportManager)
+            // This preserves the viewport-calculated position
+        } else {
+            this.x = CONFIG.PLAYER_X_POSITION;
+        }
+
         this.gravityDirection = 1; // 1 = down, -1 = up
         this.velocityY = 0;
         this.isFlipping = false;
@@ -1129,18 +1333,27 @@ class GravityFlipGame {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
 
-        // Initialize logical dimensions to base resolution
+        // Initialize viewport manager for consistent spacing across devices
+        this.viewportManager = new ViewportManager(CONFIG);
+
+        // Initialize logical dimensions (will be set by resizeCanvas)
         this.logicalWidth = CONFIG.BASE_WIDTH;
         this.logicalHeight = CONFIG.BASE_HEIGHT;
 
+        // Initial resize to calculate viewport
         this.resizeCanvas();
 
-        // Create a canvas-like object with base resolution for game objects
-        const logicalCanvas = { width: CONFIG.BASE_WIDTH, height: CONFIG.BASE_HEIGHT };
+        // Create a canvas-like object with calculated logical resolution for game objects
+        const logicalCanvas = {
+            width: this.viewportManager.logicalWidth,
+            height: this.viewportManager.logicalHeight
+        };
 
         // Systems
         this.state = new GameState();
         this.player = new Player(logicalCanvas);
+        // Set player X position from viewport manager (consistent ratio-based positioning)
+        this.player.x = this.viewportManager.playerX;
         this.obstacles = [];
         this.obstacleGenerator = new ObstacleGenerator(logicalCanvas);
         this.effects = new EffectsSystem();
@@ -1216,62 +1429,77 @@ class GravityFlipGame {
         const viewportWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
         const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
-        // Calculate scale to fit while maintaining aspect ratio
-        const scaleX = viewportWidth / CONFIG.BASE_WIDTH;
-        const scaleY = viewportHeight / CONFIG.BASE_HEIGHT;
+        // Calculate viewport layout using ViewportManager
+        this.viewportManager.calculate(viewportWidth, viewportHeight);
 
-        // Use the smaller scale to ensure the game fits entirely (letterbox)
-        const scale = Math.min(scaleX, scaleY);
+        // Get device pixel ratio for crisp rendering
+        const dpr = this.viewportManager.dpr;
 
-        // Calculate the actual display size
-        const displayWidth = Math.floor(CONFIG.BASE_WIDTH * scale);
-        const displayHeight = Math.floor(CONFIG.BASE_HEIGHT * scale);
+        // Set canvas internal resolution (game runs at logical resolution for consistent physics)
+        this.canvas.width = this.viewportManager.logicalWidth * dpr;
+        this.canvas.height = this.viewportManager.logicalHeight * dpr;
 
-        // Handle device pixel ratio for crisp rendering
-        const dpr = window.devicePixelRatio || 1;
+        // Set CSS display size (scaled to fit viewport with letterbox/pillarbox)
+        this.canvas.style.width = this.viewportManager.displayWidth + 'px';
+        this.canvas.style.height = this.viewportManager.displayHeight + 'px';
 
-        // Set canvas internal resolution (game always runs at base resolution)
-        this.canvas.width = CONFIG.BASE_WIDTH * dpr;
-        this.canvas.height = CONFIG.BASE_HEIGHT * dpr;
-
-        // Set CSS display size (scaled to fit viewport)
-        this.canvas.style.width = displayWidth + 'px';
-        this.canvas.style.height = displayHeight + 'px';
-
-        // Scale canvas context to match DPR
+        // Scale canvas context to match DPR for crisp rendering
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        // Store dimensions for game logic (always base resolution)
-        this.logicalWidth = CONFIG.BASE_WIDTH;
-        this.logicalHeight = CONFIG.BASE_HEIGHT;
+        // Store dimensions for game logic
+        this.logicalWidth = this.viewportManager.logicalWidth;
+        this.logicalHeight = this.viewportManager.logicalHeight;
 
         // Store scale for input coordinate conversion
-        this.displayScale = scale;
-        this.displayWidth = displayWidth;
-        this.displayHeight = displayHeight;
+        this.displayScale = this.viewportManager.currentScale;
+        this.displayWidth = this.viewportManager.displayWidth;
+        this.displayHeight = this.viewportManager.displayHeight;
 
-        // Fixed Surface Heights (percentage of base height)
-        const surfaceHeight = Math.floor(CONFIG.BASE_HEIGHT * 0.12); // 12% of base height
-        CONFIG.FLOOR_HEIGHT = surfaceHeight;
-        CONFIG.CEILING_HEIGHT = surfaceHeight;
+        // Update CONFIG with calculated surface heights (enforces minimum playable gap)
+        CONFIG.FLOOR_HEIGHT = this.viewportManager.surfaceHeight;
+        CONFIG.CEILING_HEIGHT = this.viewportManager.surfaceHeight;
 
-        // Update game objects with base resolution canvas
-        const logicalCanvas = { width: CONFIG.BASE_WIDTH, height: CONFIG.BASE_HEIGHT };
+        // Create logical canvas reference for game objects
+        const logicalCanvas = {
+            width: this.viewportManager.logicalWidth,
+            height: this.viewportManager.logicalHeight
+        };
+
+        // Update player position and bounds
         if (this.player) {
             this.player.canvas = logicalCanvas;
-            // Keep player in bounds
-            const floorY = CONFIG.BASE_HEIGHT - CONFIG.FLOOR_HEIGHT - this.player.height;
-            if (this.player.y > floorY && this.player.gravityDirection === 1) {
-                this.player.y = floorY;
-                this.player.velocityY = 0;
-                this.player.isGrounded = true;
+
+            // Update player X position using viewport-calculated ratio
+            this.player.x = this.viewportManager.playerX;
+
+            // Get spawn positions for bounds checking
+            const spawnPos = this.viewportManager.getPlayerSpawnPosition(this.player.height);
+
+            // Keep player in bounds based on gravity direction
+            if (this.player.gravityDirection === 1) {
+                // Gravity down - check floor boundary
+                if (this.player.y > spawnPos.floorY) {
+                    this.player.y = spawnPos.floorY;
+                    this.player.velocityY = 0;
+                    this.player.isGrounded = true;
+                }
+            } else {
+                // Gravity up - check ceiling boundary
+                if (this.player.y < spawnPos.ceilingY) {
+                    this.player.y = spawnPos.ceilingY;
+                    this.player.velocityY = 0;
+                    this.player.isGrounded = true;
+                }
             }
         }
+
+        // Update obstacle generator with logical canvas
         if (this.obstacleGenerator) {
             this.obstacleGenerator.canvas = logicalCanvas;
         }
 
-        console.log(`[Resize] Base: ${CONFIG.BASE_WIDTH}x${CONFIG.BASE_HEIGHT}, Display: ${displayWidth}x${displayHeight}, Scale: ${scale.toFixed(2)}, DPR: ${dpr}`);
+        // Log viewport info for debugging
+        console.log(`[Viewport] ${this.viewportManager.getDebugInfo()}`);
     }
 
     bindEvents() {
@@ -1430,7 +1658,11 @@ class GravityFlipGame {
 
         this.state.reset();
         this.state.isRunning = true;
+
+        // Set player initial X position from viewport manager for consistent positioning
+        this.player.initialX = this.viewportManager.playerX;
         this.player.reset();
+
         this.obstacles = [];
         this.coins = [];  // Clear coins
         this.clearAllPowerUps();  // Clear any active power-ups
@@ -1695,7 +1927,8 @@ class GravityFlipGame {
             // Clear obstacles
             this.obstacles = [];
 
-            // Reset player position
+            // Reset player position with viewport-calculated X
+            this.player.initialX = this.viewportManager.playerX;
             this.player.reset();
 
             // Update theme for new level
@@ -1752,7 +1985,8 @@ class GravityFlipGame {
             // Brief pause effect
             this.effects.triggerScreenShake(5, 150);
 
-            // Reset player position but keep score
+            // Reset player position but keep score (using viewport-calculated X)
+            this.player.initialX = this.viewportManager.playerX;
             this.player.reset();
             this.player.velocityY = 0;  // Explicitly zero velocity
             this.player.isFlipping = false;
