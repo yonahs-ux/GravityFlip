@@ -78,7 +78,13 @@ const CONFIG = {
         shield: '🛡️ SHIELD!',
         slowmo: '🐢 SLOW-MO!',
         magnet: '🧲 MAGNET!'
-    }
+    },
+
+    // Base Resolution (aspect ratio = 16:9)
+    // Game is designed at this resolution; scales to fit screen
+    BASE_WIDTH: 1280,
+    BASE_HEIGHT: 720,
+    TARGET_ASPECT_RATIO: 16 / 9
 };
 
 // Neon Cyber-Drift Themes
@@ -1123,14 +1129,14 @@ class GravityFlipGame {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
 
-        // Initialize logical dimensions first
-        this.logicalWidth = window.innerWidth;
-        this.logicalHeight = window.innerHeight;
+        // Initialize logical dimensions to base resolution
+        this.logicalWidth = CONFIG.BASE_WIDTH;
+        this.logicalHeight = CONFIG.BASE_HEIGHT;
 
         this.resizeCanvas();
 
-        // Create a canvas-like object with logical dimensions for game objects
-        const logicalCanvas = { width: this.logicalWidth, height: this.logicalHeight };
+        // Create a canvas-like object with base resolution for game objects
+        const logicalCanvas = { width: CONFIG.BASE_WIDTH, height: CONFIG.BASE_HEIGHT };
 
         // Systems
         this.state = new GameState();
@@ -1206,42 +1212,66 @@ class GravityFlipGame {
     }
 
     resizeCanvas() {
-        // Use visualViewport for more accurate mobile sizing (handles address bar)
-        const width = window.visualViewport ? window.visualViewport.width : window.innerWidth;
-        const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        // Get available viewport dimensions
+        const viewportWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+        const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
-        // Handle device pixel ratio for crisp rendering on high-DPI screens
+        // Calculate scale to fit while maintaining aspect ratio
+        const scaleX = viewportWidth / CONFIG.BASE_WIDTH;
+        const scaleY = viewportHeight / CONFIG.BASE_HEIGHT;
+
+        // Use the smaller scale to ensure the game fits entirely (letterbox)
+        const scale = Math.min(scaleX, scaleY);
+
+        // Calculate the actual display size
+        const displayWidth = Math.floor(CONFIG.BASE_WIDTH * scale);
+        const displayHeight = Math.floor(CONFIG.BASE_HEIGHT * scale);
+
+        // Handle device pixel ratio for crisp rendering
         const dpr = window.devicePixelRatio || 1;
 
-        // Set canvas internal resolution (for crisp rendering)
-        this.canvas.width = width * dpr;
-        this.canvas.height = height * dpr;
+        // Set canvas internal resolution (game always runs at base resolution)
+        this.canvas.width = CONFIG.BASE_WIDTH * dpr;
+        this.canvas.height = CONFIG.BASE_HEIGHT * dpr;
+
+        // Set CSS display size (scaled to fit viewport)
+        this.canvas.style.width = displayWidth + 'px';
+        this.canvas.style.height = displayHeight + 'px';
 
         // Scale canvas context to match DPR
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-        // Store logical dimensions for game logic
-        this.logicalWidth = width;
-        this.logicalHeight = height;
+        // Store dimensions for game logic (always base resolution)
+        this.logicalWidth = CONFIG.BASE_WIDTH;
+        this.logicalHeight = CONFIG.BASE_HEIGHT;
 
-        // Dynamic Surface Heights (15% of screen height, min 50px, max 150px)
-        const surfaceHeight = Math.min(150, Math.max(50, Math.floor(height * 0.15)));
+        // Store scale for input coordinate conversion
+        this.displayScale = scale;
+        this.displayWidth = displayWidth;
+        this.displayHeight = displayHeight;
+
+        // Fixed Surface Heights (percentage of base height)
+        const surfaceHeight = Math.floor(CONFIG.BASE_HEIGHT * 0.12); // 12% of base height
         CONFIG.FLOOR_HEIGHT = surfaceHeight;
         CONFIG.CEILING_HEIGHT = surfaceHeight;
 
-        // Ensure Player is informed of new bounds immediately if possible
+        // Update game objects with base resolution canvas
+        const logicalCanvas = { width: CONFIG.BASE_WIDTH, height: CONFIG.BASE_HEIGHT };
         if (this.player) {
-            this.player.canvas = { width: width, height: height };
-            // Keep player in bounds if screen shrank
-            const floorY = height - CONFIG.FLOOR_HEIGHT - this.player.height;
+            this.player.canvas = logicalCanvas;
+            // Keep player in bounds
+            const floorY = CONFIG.BASE_HEIGHT - CONFIG.FLOOR_HEIGHT - this.player.height;
             if (this.player.y > floorY && this.player.gravityDirection === 1) {
                 this.player.y = floorY;
                 this.player.velocityY = 0;
                 this.player.isGrounded = true;
             }
         }
+        if (this.obstacleGenerator) {
+            this.obstacleGenerator.canvas = logicalCanvas;
+        }
 
-        console.log(`[Resize] Canvas: ${width}x${height} @ ${dpr}x DPR`);
+        console.log(`[Resize] Base: ${CONFIG.BASE_WIDTH}x${CONFIG.BASE_HEIGHT}, Display: ${displayWidth}x${displayHeight}, Scale: ${scale.toFixed(2)}, DPR: ${dpr}`);
     }
 
     bindEvents() {
