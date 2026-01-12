@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Gravity Flip - An endless runner game where you flip gravity to avoid obstacles">
+    <title>Gravity Flip</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Start Screen Overlay -->
+    <div id="startScreen" class="overlay">
+        <div class="overlay-content">
+            <h1 class="game-title">GRAVITY FLIP</h1>
+            <p class="instructions">Tap or click to flip gravity</p>
+            <p class="instructions">Avoid the obstacles!</p>
+            <button id="startBtn" class="btn primary-btn">START GAME</button>
+            <div class="high-score-display">
+                <span>High Score: </span><span id="startHighScore">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen Overlay -->
+    <div id="gameOverScreen" class="overlay hidden">
+        <div class="overlay-content">
+            <h1 class="game-over-title">GAME OVER</h1>
+            <div class="score-container">
+                <div class="score-item">
+                    <span class="score-label">Score</span>
+                    <span id="finalScore" class="score-value">0</span>
+                </div>
+                <div class="score-item">
+                    <span class="score-label">High Score</span>
+                    <span id="highScore" class="score-value">0</span>
+                </div>
+            </div>
+            <button id="restartBtn" class="btn primary-btn">PLAY AGAIN</button>
+
+            <!-- Share Section -->
+            <div class="share-section">
+                <p class="share-title">📤 Share Your Score!</p>
+                <div class="share-buttons">
+                    <button id="shareWhatsApp" class="share-btn whatsapp-btn" title="Share on WhatsApp">
+                        <span class="share-icon">💬</span>
+                        <span class="share-label">WhatsApp</span>
+                    </button>
+                    <button id="shareNative" class="share-btn native-btn" title="Share">
+                        <span class="share-icon">📤</span>
+                        <span class="share-label">Share</span>
+                    </button>
+                    <button id="downloadScore" class="share-btn download-btn" title="Download Image">
+                        <span class="share-icon">📥</span>
+                        <span class="share-label">Save</span>
+                    </button>
+                </div>
+                <p class="share-hint">For Instagram/TikTok: Save image and share from app</p>
+            </div>
+
+            <p class="death-count">Level Reached: <span id="levelReached">1</span> | Deaths: <span
+                    id="deathCount">0</span></p>
+        </div>
+    </div>
+
+    <!-- Ad Overlay -->
+    <div id="adOverlay" class="overlay hidden">
+        <div class="ad-container">
+            <div class="ad-label">Advertisement</div>
+            <div id="adContent" class="ad-content">
+                <!-- Ad content injected here -->
+            </div>
+            <button id="closeAdBtn" class="btn close-ad-btn">Close Ad</button>
+        </div>
+    </div>
+
+    <!-- Extra Life Ad Overlay -->
+    <div id="extraLifeOverlay" class="overlay hidden">
+        <div class="overlay-content extra-life-offer">
+            <h2 class="extra-life-title">🎁 FREE LIFE!</h2>
+            <p class="extra-life-desc">Watch a short video to earn an extra life!</p>
+            <p class="extra-life-info">Your life will be automatically used when you die.</p>
+            <div class="extra-life-buttons">
+                <button id="watchAdBtn" class="btn primary-btn">▶️ WATCH AD</button>
+                <button id="skipAdBtn" class="btn secondary-btn">No Thanks</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+        <div class="hud-item level-display">
+            <span class="hud-label">Level</span>
+            <span class="hud-value" id="currentLevel">1</span>
+        </div>
+        <div class="hud-item">
+            <span class="hud-label">Score</span>
+            <span class="hud-value" id="currentScore">0</span>
+        </div>
+        <div class="hud-item lives-display">
+            <span class="hud-label">❤️ Lives</span>
+            <span class="hud-value" id="extraLives">0</span>
+        </div>
+    </div>
+
+    <!-- Power-up Popup Notification -->
+    <div id="powerUpPopup" class="power-up-popup hidden"></div>
+
+    <!-- Level Transition Overlay -->
+    <div id="levelTransition" class="overlay hidden">
+        <div class="overlay-content level-complete">
+            <div class="checkered-flag">🏁</div>
+            <h1 class="level-title">LEVEL <span id="completedLevel">1</span> COMPLETE!</h1>
+            <p class="level-subtitle">Get ready for Level <span id="nextLevel">2</span></p>
+            <div class="level-stats">
+                <p>Total Score: <span id="transitionScore">0</span></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Respawn Ready Overlay -->
+    <div id="readyOverlay" class="overlay hidden ready-overlay">
+        <div class="ready-content">
+            <div class="ready-text">READY...</div>
+            <div class="ready-countdown"><span id="readyCountdown">3</span></div>
+            <div class="ready-subtitle">You are invincible</div>
+        </div>
+    </div>
+
+    <!-- Mute Button -->
+    <button id="muteBtn" class="mute-btn">🔊 SOUND</button>
+
+    <!-- Scripts -->
+    <script src="ads.js"></script>
+    <script src="game.js"></script>
+</body>
+
+</html>
