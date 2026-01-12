@@ -141,80 +141,176 @@ class AudioManager {
             this.musicGain = this.audioContext.createGain();
             this.musicGain.connect(this.audioContext.destination);
             this.musicGain.gain.value = this.isMuted ? 0 : 0.3;
+
+            // Initialize global filter for low-pass effect (muffling on death/pause)
+            this.globalFilter = this.audioContext.createBiquadFilter();
+            this.globalFilter.type = 'lowpass';
+            this.globalFilter.frequency.value = 22050; // Fully open
+            this.globalFilter.connect(this.musicGain);
+
             this.initialized = true;
 
-            // Generate procedural techno music
-            this.startTechnoMusic();
+            // Generate procedural 8-Bit Chiptune
+            this.startChiptuneMusic();
 
-            console.log('[AudioManager] Initialized');
+            console.log('[AudioManager] Initialized (Synthwave Mode)');
         } catch (e) {
             console.warn('[AudioManager] Failed to initialize:', e);
         }
     }
 
-    startTechnoMusic() {
+    startChiptuneMusic() {
+        // Renamed but now plays Synthwave
         if (!this.audioContext || this.isPlaying) return;
 
         this.isPlaying = true;
-        this.playTechnoLoop();
+        this.playSynthwaveLoop();
     }
 
-    playTechnoLoop() {
+    playSynthwaveLoop() {
         if (!this.audioContext || !this.isPlaying) return;
 
         const now = this.audioContext.currentTime;
-        const bpm = 110; // Slower, more relaxed tempo (was 128)
+        const bpm = 100; // Classic synthwave tempo
         const beatDuration = 60 / bpm;
 
-        // Softer bass drum pattern - only on beats 1 and 3
-        this.playSoftKick(now);
-        this.playSoftKick(now + beatDuration * 2);
+        // Warm pad chord (sustained background)
+        this.playWarmPad(now, beatDuration * 4);
 
-        // Hi-hat pattern - softer overall
+        // Deep rolling bass (arpeggio style)
+        const bassNotes = [55, 55, 73.42, 73.42, 82.41, 82.41, 65.41, 65.41]; // A1, D2, E2, C2 progression
         for (let i = 0; i < 8; i++) {
-            this.playHiHat(now + i * beatDuration / 2, true); // All soft hi-hats
+            const bassFreq = bassNotes[i % bassNotes.length];
+            this.playDeepBass(bassFreq, now + i * beatDuration / 2, beatDuration / 2);
         }
 
-        // Softer ambient pad instead of heavy bass
-        this.playAmbientPad(now, beatDuration * 4);
+        // Kick on 1 and 3
+        this.playSynthKick(now);
+        this.playSynthKick(now + beatDuration * 2);
+
+        // Gated snare on 2 and 4
+        this.playGatedSnare(now + beatDuration);
+        this.playGatedSnare(now + beatDuration * 3);
+
+        // Soft hi-hats
+        for (let i = 0; i < 8; i++) {
+            this.playSoftHiHat(now + i * beatDuration / 2);
+        }
 
         // Schedule next loop
-        setTimeout(() => this.playTechnoLoop(), beatDuration * 4 * 1000);
+        setTimeout(() => this.playSynthwaveLoop(), beatDuration * 4 * 1000);
     }
 
-    playSoftKick(time) {
-        // Softer kick - less bass, shorter decay
-        const osc = this.audioContext.createOscillator();
-        // Initial Filter Setup
-        this.globalFilter = this.audioContext.createBiquadFilter();
-        this.globalFilter.type = 'lowpass';
-        this.globalFilter.frequency.value = 22050; // Open
-        this.globalFilter.connect(this.musicGain);
+    playWarmPad(time, duration) {
+        // Two detuned sawtooth oscillators for warmth
+        const osc1 = this.audioContext.createOscillator();
+        const osc2 = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
 
-        // Much quieter kick
-        gain.gain.setValueAtTime(0.25, time); // Was 0.8
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+        osc1.type = 'sawtooth';
+        osc2.type = 'sawtooth';
+        osc1.frequency.setValueAtTime(220, time); // A3
+        osc2.frequency.setValueAtTime(220 * 1.005, time); // Slightly detuned for chorus
 
-        // Add lowpass filter to remove harsh frequencies
         filter.type = 'lowpass';
-        filter.frequency.value = 200;
+        filter.frequency.setValueAtTime(800, time);
+        filter.Q.value = 1;
+
+        gain.gain.setValueAtTime(0.08, time);
+        gain.gain.setValueAtTime(0.08, time + duration - 0.2);
+        gain.gain.linearRampToValueAtTime(0.01, time + duration);
+
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.globalFilter);
+
+        osc1.start(time);
+        osc2.start(time);
+        osc1.stop(time + duration);
+        osc2.stop(time + duration);
+    }
+
+    playDeepBass(freq, time, duration) {
+        const osc = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, time);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(300, time);
+
+        gain.gain.setValueAtTime(0.25, time);
+        gain.gain.linearRampToValueAtTime(0.1, time + duration * 0.8);
+        gain.gain.linearRampToValueAtTime(0.01, time + duration);
 
         osc.connect(filter);
         filter.connect(gain);
-        // Connect to global filter instead of musicGain directly
         gain.connect(this.globalFilter);
 
         osc.start(time);
-        osc.stop(time + 0.1);
+        osc.stop(time + duration);
     }
 
-    playHiHat(time, soft = false) {
-        const bufferSize = this.audioContext.sampleRate * 0.03;
+    playSynthKick(time) {
+        const osc = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+
+        osc.frequency.setValueAtTime(150, time);
+        osc.frequency.exponentialRampToValueAtTime(30, time + 0.15);
+
+        gain.gain.setValueAtTime(0.6, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+        osc.connect(gain);
+        gain.connect(this.globalFilter);
+
+        osc.start(time);
+        osc.stop(time + 0.2);
+    }
+
+    playGatedSnare(time) {
+        // Classic 80s gated reverb snare: noise burst with sharp cutoff
+        const bufferSize = this.audioContext.sampleRate * 0.15;
         const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
         const data = buffer.getChannelData(0);
 
         for (let i = 0; i < bufferSize; i++) {
-            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.08));
+            // Quick attack, sustain, abrupt gate
+            const env = i < bufferSize * 0.1 ? i / (bufferSize * 0.1) :
+                i < bufferSize * 0.7 ? 1 :
+                    Math.pow(1 - (i - bufferSize * 0.7) / (bufferSize * 0.3), 3);
+            data[i] = (Math.random() * 2 - 1) * env;
+        }
+
+        const source = this.audioContext.createBufferSource();
+        const gain = this.audioContext.createGain();
+        const filter = this.audioContext.createBiquadFilter();
+
+        source.buffer = buffer;
+        filter.type = 'bandpass';
+        filter.frequency.value = 1500;
+        filter.Q.value = 0.5;
+
+        gain.gain.setValueAtTime(0.4, time);
+
+        source.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.globalFilter);
+
+        source.start(time);
+    }
+
+    playSoftHiHat(time) {
+        const bufferSize = this.audioContext.sampleRate * 0.04;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
         }
 
         const source = this.audioContext.createBufferSource();
@@ -223,45 +319,16 @@ class AudioManager {
 
         source.buffer = buffer;
         filter.type = 'highpass';
-        filter.frequency.value = 10000;
+        filter.frequency.value = 8000;
 
-        gain.gain.setValueAtTime(soft ? 0.08 : 0.12, time);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.03);
+        gain.gain.setValueAtTime(0.06, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.04);
 
         source.connect(filter);
         filter.connect(gain);
-        gain.connect(this.globalFilter); // Global Filter
+        gain.connect(this.globalFilter);
 
         source.start(time);
-    }
-
-    playAmbientPad(time, duration) {
-        const osc = this.audioContext.createOscillator();
-        const osc2 = this.audioContext.createOscillator();
-        const gain = this.audioContext.createGain();
-        const filter = this.audioContext.createBiquadFilter();
-
-        osc.type = 'sine';
-        osc2.type = 'sine';
-        osc.frequency.setValueAtTime(110, time);
-        osc2.frequency.setValueAtTime(165, time);
-
-        gain.gain.setValueAtTime(0.05, time);
-        gain.gain.setValueAtTime(0.05, time + duration - 0.1);
-        gain.gain.exponentialRampToValueAtTime(0.01, time + duration);
-
-        filter.type = 'lowpass';
-        filter.frequency.value = 400;
-
-        osc.connect(filter);
-        osc2.connect(filter);
-        filter.connect(gain);
-        gain.connect(this.globalFilter); // Global Filter
-
-        osc.start(time);
-        osc2.start(time);
-        osc.stop(time + duration);
-        osc2.stop(time + duration);
     }
 
     setLowPass(active) {
@@ -280,18 +347,44 @@ class AudioManager {
         const osc = this.audioContext.createOscillator();
         const gain = this.audioContext.createGain();
 
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(200, this.audioContext.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(50, this.audioContext.currentTime + 0.3);
+        // 8-Bit Death: Sawtooth/Square drop
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(400, this.audioContext.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(50, this.audioContext.currentTime + 0.4);
+
+        // Noise burst overlay for "crunch"
+        const noiseNodes = this.createNoiseBurst(this.audioContext.currentTime, 0.4);
 
         gain.gain.setValueAtTime(0.3, this.audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.4);
 
         osc.connect(gain);
         gain.connect(this.audioContext.destination);
 
         osc.start();
-        osc.stop(this.audioContext.currentTime + 0.3);
+        osc.stop(this.audioContext.currentTime + 0.4);
+    }
+
+    // Helper for noise generation (used by death sound)
+    createNoiseBurst(time, duration) {
+        const bufferSize = this.audioContext.sampleRate * duration;
+        const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = this.audioContext.createBufferSource();
+        noise.buffer = buffer;
+        const noiseGain = this.audioContext.createGain();
+        noiseGain.gain.setValueAtTime(0.2, time);
+        noiseGain.gain.linearRampToValueAtTime(0.01, time + duration);
+
+        noise.connect(noiseGain);
+        noiseGain.connect(this.audioContext.destination);
+        noise.start(time);
+        return { noise, noiseGain };
     }
 
     playFlipSound() {
@@ -300,12 +393,13 @@ class AudioManager {
         const osc = this.audioContext.createOscillator();
         const gain = this.audioContext.createGain();
 
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(400, this.audioContext.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, this.audioContext.currentTime + 0.1);
+        // 8-Bit Jump Sound: Square wave with rapid sliding pitch
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(200, this.audioContext.currentTime);
+        osc.frequency.linearRampToValueAtTime(600, this.audioContext.currentTime + 0.1);
 
-        gain.gain.setValueAtTime(0.2, this.audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.15, this.audioContext.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, this.audioContext.currentTime + 0.1);
 
         osc.connect(gain);
         gain.connect(this.audioContext.destination);
@@ -1106,6 +1200,23 @@ class GravityFlipGame {
     resizeCanvas() {
         this.canvas.width = window.innerWidth;
         this.canvas.height = window.innerHeight;
+
+        // Dynamic Surface Heights (15% of screen height, min 50px, max 150px)
+        const surfaceHeight = Math.min(150, Math.max(50, Math.floor(this.canvas.height * 0.15)));
+        CONFIG.FLOOR_HEIGHT = surfaceHeight;
+        CONFIG.CEILING_HEIGHT = surfaceHeight;
+
+        // Ensure Player is informed of new bounds immediately if possible
+        if (this.player) {
+            this.player.canvas = this.canvas;
+            // Keep player in bounds if screen shrank
+            const floorY = this.canvas.height - CONFIG.FLOOR_HEIGHT - this.player.height;
+            if (this.player.y > floorY && this.player.gravityDirection === 1) {
+                this.player.y = floorY;
+                this.player.velocityY = 0;
+                this.player.isGrounded = true;
+            }
+        }
     }
 
     bindEvents() {
@@ -2248,3 +2359,4 @@ let game;
 document.addEventListener('DOMContentLoaded', () => {
     game = new GravityFlipGame();
 });
+
