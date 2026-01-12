@@ -1122,13 +1122,21 @@ class GravityFlipGame {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
+
+        // Initialize logical dimensions first
+        this.logicalWidth = window.innerWidth;
+        this.logicalHeight = window.innerHeight;
+
         this.resizeCanvas();
+
+        // Create a canvas-like object with logical dimensions for game objects
+        const logicalCanvas = { width: this.logicalWidth, height: this.logicalHeight };
 
         // Systems
         this.state = new GameState();
-        this.player = new Player(this.canvas);
+        this.player = new Player(logicalCanvas);
         this.obstacles = [];
-        this.obstacleGenerator = new ObstacleGenerator(this.canvas);
+        this.obstacleGenerator = new ObstacleGenerator(logicalCanvas);
         this.effects = new EffectsSystem();
         this.audio = new AudioManager();
 
@@ -1198,34 +1206,64 @@ class GravityFlipGame {
     }
 
     resizeCanvas() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        // Use visualViewport for more accurate mobile sizing (handles address bar)
+        const width = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+        const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+
+        // Handle device pixel ratio for crisp rendering on high-DPI screens
+        const dpr = window.devicePixelRatio || 1;
+
+        // Set canvas internal resolution (for crisp rendering)
+        this.canvas.width = width * dpr;
+        this.canvas.height = height * dpr;
+
+        // Scale canvas context to match DPR
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        // Store logical dimensions for game logic
+        this.logicalWidth = width;
+        this.logicalHeight = height;
 
         // Dynamic Surface Heights (15% of screen height, min 50px, max 150px)
-        const surfaceHeight = Math.min(150, Math.max(50, Math.floor(this.canvas.height * 0.15)));
+        const surfaceHeight = Math.min(150, Math.max(50, Math.floor(height * 0.15)));
         CONFIG.FLOOR_HEIGHT = surfaceHeight;
         CONFIG.CEILING_HEIGHT = surfaceHeight;
 
         // Ensure Player is informed of new bounds immediately if possible
         if (this.player) {
-            this.player.canvas = this.canvas;
+            this.player.canvas = { width: width, height: height };
             // Keep player in bounds if screen shrank
-            const floorY = this.canvas.height - CONFIG.FLOOR_HEIGHT - this.player.height;
+            const floorY = height - CONFIG.FLOOR_HEIGHT - this.player.height;
             if (this.player.y > floorY && this.player.gravityDirection === 1) {
                 this.player.y = floorY;
                 this.player.velocityY = 0;
                 this.player.isGrounded = true;
             }
         }
+
+        console.log(`[Resize] Canvas: ${width}x${height} @ ${dpr}x DPR`);
     }
 
     bindEvents() {
-        window.addEventListener('resize', () => {
-            this.resizeCanvas();
-            if (this.player) {
-                this.player.canvas = this.canvas;
-            }
+        // Resize handler with debounce
+        let resizeTimeout;
+        const handleResize = () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                this.resizeCanvas();
+            }, 100);
+        };
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', () => {
+            // Delay to let browser finish rotation
+            setTimeout(() => this.resizeCanvas(), 200);
         });
+
+        // Visual viewport resize (for mobile address bar changes)
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', handleResize);
+        }
 
         document.getElementById('startBtn').addEventListener('click', () => this.startGame());
         document.getElementById('restartBtn').addEventListener('click', () => this.handleRestart());
@@ -1538,19 +1576,19 @@ class GravityFlipGame {
 
         // Background
         this.ctx.fillStyle = theme.bg;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(0, 0, this.logicalWidth, this.logicalHeight);
 
         // Floor
         this.ctx.fillStyle = theme.floor;
-        this.ctx.fillRect(0, this.canvas.height - CONFIG.FLOOR_HEIGHT, this.canvas.width, CONFIG.FLOOR_HEIGHT);
+        this.ctx.fillRect(0, this.logicalHeight - CONFIG.FLOOR_HEIGHT, this.logicalWidth, CONFIG.FLOOR_HEIGHT);
         this.ctx.fillStyle = theme.floorAccent;
-        this.ctx.fillRect(0, this.canvas.height - CONFIG.FLOOR_HEIGHT, this.canvas.width, 4);
+        this.ctx.fillRect(0, this.logicalHeight - CONFIG.FLOOR_HEIGHT, this.logicalWidth, 4);
 
         // Ceiling
         this.ctx.fillStyle = theme.ceiling;
-        this.ctx.fillRect(0, 0, this.canvas.width, CONFIG.CEILING_HEIGHT);
+        this.ctx.fillRect(0, 0, this.logicalWidth, CONFIG.CEILING_HEIGHT);
         this.ctx.fillStyle = theme.ceilingAccent;
-        this.ctx.fillRect(0, CONFIG.CEILING_HEIGHT - 4, this.canvas.width, 4);
+        this.ctx.fillRect(0, CONFIG.CEILING_HEIGHT - 4, this.logicalWidth, 4);
 
         // Grid lines for visual reference
         this.drawGrid(theme);
@@ -1582,10 +1620,10 @@ class GravityFlipGame {
         this.ctx.lineWidth = 1;
 
         const offset = this.state.distance % 100;
-        for (let x = -offset; x < this.canvas.width; x += 100) {
+        for (let x = -offset; x < this.logicalWidth; x += 100) {
             this.ctx.beginPath();
             this.ctx.moveTo(x, CONFIG.CEILING_HEIGHT);
-            this.ctx.lineTo(x, this.canvas.height - CONFIG.FLOOR_HEIGHT);
+            this.ctx.lineTo(x, this.logicalHeight - CONFIG.FLOOR_HEIGHT);
             this.ctx.stroke();
         }
     }
@@ -2359,4 +2397,3 @@ let game;
 document.addEventListener('DOMContentLoaded', () => {
     game = new GravityFlipGame();
 });
-
