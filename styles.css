@@ -66,15 +66,26 @@ body::after {
     mix-blend-mode: overlay;
 }
 
-/* Game Canvas */
-#gameCanvas {
-    display: block;
-    width: 100vw;
-    height: 100vh;
+/* Game Container (for letterboxing) */
+#gameContainer {
     position: fixed;
     top: 0;
     left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+    /* Letterbox bars are black */
+    overflow: hidden;
     z-index: 1;
+}
+
+/* Game Canvas */
+#gameCanvas {
+    display: block;
+    /* Size is set dynamically by JS */
     touch-action: none;
     -webkit-touch-callout: none;
     filter: contrast(1.1) brightness(1.1);
