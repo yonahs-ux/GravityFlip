@@ -166,6 +166,20 @@ class ViewportManager {
      * @returns {ViewportManager} - Returns self for chaining
      */
     calculate(viewportWidth, viewportHeight) {
+        // PERFORMANCE: Cache last viewport dimensions to avoid unnecessary recalculations
+        // This is critical on Android where visualViewport resize events fire frequently
+        if (this._lastViewportWidth === viewportWidth &&
+            this._lastViewportHeight === viewportHeight &&
+            this._lastDpr === (window.devicePixelRatio || 1)) {
+            return this; // No change, skip expensive calculations
+        }
+
+        // Cache current values
+        this._lastViewportWidth = viewportWidth;
+        this._lastViewportHeight = viewportHeight;
+        this._lastDpr = window.devicePixelRatio || 1;
+        this.dpr = this._lastDpr;
+
         // Determine orientation
         this.orientation = viewportWidth >= viewportHeight ? 'landscape' : 'portrait';
 
@@ -188,7 +202,6 @@ class ViewportManager {
         // Ensure minimum scale for readability
         const MIN_SCALE = 0.5;
         if (this.currentScale < MIN_SCALE) {
-            console.warn(`[ViewportManager] Scale ${this.currentScale.toFixed(2)} below minimum, clamping to ${MIN_SCALE}`);
             this.currentScale = MIN_SCALE;
         }
 
@@ -199,9 +212,6 @@ class ViewportManager {
         // Store logical dimensions (game runs at this resolution internally)
         this.logicalWidth = baseWidth;
         this.logicalHeight = baseHeight;
-
-        // Store device pixel ratio
-        this.dpr = window.devicePixelRatio || 1;
 
         // Calculate surface heights with minimum gap enforcement
         this.calculateSurfaceHeights();
@@ -243,11 +253,6 @@ class ViewportManager {
         // Store calculated values
         this.surfaceHeight = surfaceHeight;
         this.playableGap = this.logicalHeight - (surfaceHeight * 2);
-
-        // Validate playable gap
-        if (this.playableGap < minGapAbsolute) {
-            console.warn(`[ViewportManager] Playable gap ${this.playableGap}px below minimum ${minGapAbsolute}px. Screen may be too small.`);
-        }
     }
 
     /**
@@ -269,7 +274,6 @@ class ViewportManager {
         // If buffer is insufficient, adjust player position
         if (actualBuffer < minBuffer) {
             this.playerX = Math.floor(this.logicalWidth - minBuffer);
-            console.warn(`[ViewportManager] Adjusting player X to ${this.playerX} to maintain ${minBufferRatio * 100}% buffer ahead`);
         }
 
         // Ensure player X is always positive and reasonable
@@ -1430,14 +1434,39 @@ class GravityFlipGame {
         const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
 
         // Calculate viewport layout using ViewportManager
+        // ViewportManager has internal caching - if nothing changed, this returns early
+        const prevLogicalWidth = this.viewportManager.logicalWidth;
+        const prevLogicalHeight = this.viewportManager.logicalHeight;
+        const prevDisplayWidth = this.viewportManager.displayWidth;
+        const prevDisplayHeight = this.viewportManager.displayHeight;
+
         this.viewportManager.calculate(viewportWidth, viewportHeight);
+
+        // PERFORMANCE: Skip expensive canvas operations if nothing actually changed
+        // Changing canvas.width/height clears the canvas and forces full re-render
+        const dimensionsChanged =
+            prevLogicalWidth !== this.viewportManager.logicalWidth ||
+            prevLogicalHeight !== this.viewportManager.logicalHeight ||
+            prevDisplayWidth !== this.viewportManager.displayWidth ||
+            prevDisplayHeight !== this.viewportManager.displayHeight;
+
+        if (!dimensionsChanged && this._canvasInitialized) {
+            return; // Nothing changed, skip expensive operations
+        }
 
         // Get device pixel ratio for crisp rendering
         const dpr = this.viewportManager.dpr;
 
         // Set canvas internal resolution (game runs at logical resolution for consistent physics)
-        this.canvas.width = this.viewportManager.logicalWidth * dpr;
-        this.canvas.height = this.viewportManager.logicalHeight * dpr;
+        // CAUTION: Setting canvas.width/height clears the canvas content!
+        const targetCanvasWidth = this.viewportManager.logicalWidth * dpr;
+        const targetCanvasHeight = this.viewportManager.logicalHeight * dpr;
+
+        // Only update canvas dimensions if they actually need to change
+        if (this.canvas.width !== targetCanvasWidth || this.canvas.height !== targetCanvasHeight) {
+            this.canvas.width = targetCanvasWidth;
+            this.canvas.height = targetCanvasHeight;
+        }
 
         // Set CSS display size (scaled to fit viewport with letterbox/pillarbox)
         this.canvas.style.width = this.viewportManager.displayWidth + 'px';
@@ -1498,29 +1527,32 @@ class GravityFlipGame {
             this.obstacleGenerator.canvas = logicalCanvas;
         }
 
-        // Log viewport info for debugging
-        console.log(`[Viewport] ${this.viewportManager.getDebugInfo()}`);
+        // Mark canvas as initialized
+        this._canvasInitialized = true;
     }
 
     bindEvents() {
         // Resize handler with debounce
+        // PERFORMANCE: Use longer debounce (250ms) to avoid excessive resize calls on mobile
+        // The caching in resizeCanvas() handles cases where dimensions haven't changed
         let resizeTimeout;
         const handleResize = () => {
             clearTimeout(resizeTimeout);
             resizeTimeout = setTimeout(() => {
                 this.resizeCanvas();
-            }, 100);
+            }, 250); // Increased from 100ms for better mobile performance
         };
 
-        window.addEventListener('resize', handleResize);
+        window.addEventListener('resize', handleResize, { passive: true });
         window.addEventListener('orientationchange', () => {
             // Delay to let browser finish rotation
-            setTimeout(() => this.resizeCanvas(), 200);
-        });
+            setTimeout(() => this.resizeCanvas(), 300);
+        }, { passive: true });
 
         // Visual viewport resize (for mobile address bar changes)
+        // PERFORMANCE: This fires frequently on mobile - the caching handles duplicates
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', handleResize);
+            window.visualViewport.addEventListener('resize', handleResize, { passive: true });
         }
 
         document.getElementById('startBtn').addEventListener('click', () => this.startGame());
